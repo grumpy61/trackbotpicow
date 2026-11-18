@@ -4,7 +4,7 @@ A Raspberry Pi Pico W acts as an encoder coprocessor for TrackBot. It decodes bo
 
 - **Pico W:** counts every edge of the four encoder signals (A/B per motor), timestamps each snapshot, computes velocity, and answers register reads and command writes at I²C address `0x42`.
 - **Pi 4:** polls a 22-byte snapshot at 50–100 Hz on I²C bus 1 (shared with the VL53L1X at `0x29`), turns counts into speed and distance, and runs the control program.
-- **Power:** 5 V from the Pi 4 header feeds the Pico's VBUS pin and the encoders' Vcc. Encoder outputs are divided down to about 3.0 V before they reach the Pico.
+- **Power:** the robot's 5 V system rail feeds the Pico's VSYS pin (through a Schottky diode) and the encoders' Vcc. The Pi 4's 5 V pins are not used, and the Pico's USB port stays free for flashing and debugging at any time. Encoder outputs are divided down to about 3.0 V before they reach the Pico.
 
 Target motor: Pololu 34:1 Metal Gearmotor 25D HP 12V with 48 CPR encoder (1632.67 counts per output-shaft revolution).
 
@@ -42,11 +42,11 @@ flowchart LR
     ZK -- "motor power" --> MOT
 ```
 
-Encoder edges flow left to right into the Pico; only the I²C link and the unchanged PWM path touch the Pi 4. The 5 V rail from the Pi header feeds the Pico (VBUS, via a Schottky diode) and both encoders.
+Encoder edges flow left to right into the Pico; only the I²C link and the unchanged PWM path touch the Pi 4. The 5 V system rail feeds the Pico (VSYS, via a Schottky diode) and both encoders.
 
 ## Pin assignments
 
-The encoders use GP6–GP9 (physical pins 9–12), with ground on pin 13 right beside them. I²C uses GP4/GP5 (pins 6–7), and 5 V enters on VBUS (pin 40).
+The encoders use GP6–GP9 (physical pins 9–12), with ground on pin 13 right beside them. I²C uses GP4/GP5 (pins 6–7), and 5 V from the system rail enters on VSYS (pin 39).
 
 > **Note:** Each encoder's A and B must sit on **consecutive** GPIOs, A first, because the PIO quadrature program reads a base pin and base + 1.
 
@@ -64,8 +64,9 @@ The encoders use GP6–GP9 (physical pins 9–12), with ground on pin 13 right b
 | Ground (encoder return) | GND | 13 | Both encoders' green wires; divider and filter grounds |
 | Optional reset | RUN | 30 | Pi 4 GPIO24 (header pin 18), driven low only |
 | 3.3 V out | 3V3(OUT) | 36 | Not used (spare) |
-| 5 V in | VBUS | 40 | Pi 4 5 V (header pin 2 or 4), through a Schottky diode |
-| — | VSYS, 3V3_EN | 39, 37 | Leave unconnected |
+| 5 V in | VSYS | 39 | 5 V system rail, through a Schottky diode |
+| — | VBUS | 40 | Leave unconnected (USB 5 V only) |
+| — | 3V3_EN | 37 | Leave unconnected |
 
 GP23, GP24, GP25 and GP29 are wired to the Pico W's wireless chip and are not on the header; the design does not touch them. GP0–GP3 and GP10–GP22 remain free.
 
@@ -73,27 +74,31 @@ GP23, GP24, GP25 and GP29 are wired to the Pico W's wireless chip and are not on
 
 | Pi 4 pin | Signal | Goes to |
 | --- | --- | --- |
-| 2 or 4 | 5 V | Pico VBUS (via diode) and the encoders' blue Vcc wires |
 | 3 | GPIO2 / SDA1 | Pico GP4, and the VL53L1X SDA (unchanged) |
 | 5 | GPIO3 / SCL1 | Pico GP5, and the VL53L1X SCL (unchanged) |
 | 6 | GND | Pico GND (pin 8) |
 | 18 | GPIO24 (optional) | Pico RUN, to reset the Pico from software |
 
-The Pi already has 1.8 kΩ pull-ups to 3.3 V on GPIO2/3, so add no pull-ups and leave the Pico's internal I²C pull-ups off. For the optional reset line, configure GPIO24 as an input normally and drive it low only to reset; never drive RUN high.
+No Pi 4 5 V pin is used; the board takes its 5 V from the system rail (see [Power](#power)). The Pi already has 1.8 kΩ pull-ups to 3.3 V on GPIO2/3, so add no pull-ups and leave the Pico's internal I²C pull-ups off. For the optional reset line, configure GPIO24 as an input normally and drive it low only to reset; never drive RUN high.
 
 ## Power
 
-The Pi 4's 5 V header rail powers everything on this board: the Pico W through VBUS, and both encoders directly. The total load is well under 100 mA, assuming Wi-Fi stays off: the Pico W idles at a few tens of mA, and each Hall encoder draws at most 10 mA.
+The robot's 5 V system rail powers everything on this board: the Pico W through VSYS, and both encoders directly. The Pi 4's 5 V pins are not used. The total load is well under 100 mA, assuming Wi-Fi stays off: the Pico W idles at a few tens of mA, and each Hall encoder draws at most 10 mA.
 
 ```
-Pi 4 pin 2/4 (+5V) ──┬──|>|── Pico VBUS (pin 40)      SS14 / 1N5817 Schottky, anode at the Pi side
-                     │
-                     ├──────── Left encoder Vcc (blue)
-                     ├──────── Right encoder Vcc (blue)
-                     └── 10 µF + 100 nF ── GND         (at the board's 5 V entry)
+System 5 V rail ──┬──|>|── Pico VSYS (pin 39)        SS14 / 1N5817 Schottky, anode at the rail side
+                  │
+                  ├──────── Left encoder Vcc (blue)
+                  ├──────── Right encoder Vcc (blue)
+                  └── 10 µF + 100 nF ── GND           (at the board's 5 V entry)
+
+System GND ──────────────── Pico GND, tied to Pi 4 GND at the star point
+Pico VBUS (pin 40) ──────── not connected (USB 5 V only)
 ```
 
-- **Why the diode:** VBUS connects straight to the Pico's USB connector. Without the diode, plugging a USB cable into the Pico for flashing would tie the PC's 5 V directly to the Pi's 5 V rail. With the Schottky in series, the higher source simply wins and neither back-feeds the other. VBUS then sits about 0.3 V low (around 4.7 V), which is fine because the Pico's regulator accepts down to 1.8 V.
+- **Why VSYS, not VBUS:** VBUS is wired straight to the Pico's USB connector. Feeding the rail into VBUS would put it on the USB cable's 5 V line, so plugging in a PC would tie two supplies together and could spike or back-feed either one. VSYS sits behind the Pico's own on-board Schottky (VBUS → VSYS). With a second Schottky from the rail, the two sources form a diode-OR: whichever is higher powers the Pico, and neither can push current into the other. USB can be plugged in or pulled at any time, with the robot running.
+- **Voltage:** VSYS sits about 0.3 V below the rail (around 4.7 V from a 5.0 V rail). The Pico's regulator accepts 1.8–5.5 V on VSYS, so the rail must stay at or below about 5.8 V before the diode.
+- **Common ground:** the system rail's ground, the Pico's ground and the Pi 4's ground must all meet at the star point (see [Wiring, noise and grounding](#wiring-noise-and-grounding)). The I²C signals need that shared reference.
 - **Why not the Pico's 3.3 V for the encoders:** the Pololu Hall sensor needs at least 3.5 V, so it runs from 5 V. That makes its outputs 5 V, hence the dividers below.
 - **Decoupling:** put 10 µF + 100 nF where 5 V enters the board, and another 100 nF at each encoder connector between blue and green.
 
@@ -236,7 +241,7 @@ Mount the Pico board within about 30 cm of the Pi so the I²C run stays short, a
 | Qty | Part | Purpose |
 | --- | --- | --- |
 | 1 | Raspberry Pi Pico W | Encoder coprocessor |
-| 1 | SS14 or 1N5817 Schottky diode | 5 V into VBUS without back-feeding |
+| 1 | SS14 or 1N5817 Schottky diode | System 5 V into VSYS, diode-OR with USB |
 | 4 | 22 kΩ resistor | Divider, top |
 | 4 | 33 kΩ resistor | Divider, bottom |
 | 4 | 470 pF ceramic capacitor | Input filter |
@@ -248,8 +253,9 @@ Mount the Pico board within about 30 cm of the Pi so the I²C run stays short, a
 
 ## Bring-up checklist
 
-- [ ] Flash the firmware over USB before wiring VBUS; confirm it runs on USB power alone
-- [ ] Fit the Schottky, connect 5 V and GND from the Pi, and measure about 4.7 V on VBUS
+- [ ] Flash the firmware over USB before wiring VSYS; confirm it runs on USB power alone
+- [ ] Fit the Schottky, connect the system 5 V rail and GND, and measure about 4.7 V on VSYS with USB unplugged
+- [ ] Plug USB in while the rail is on: the Pico keeps running, and VBUS reads about 5 V while the rail side of the diode is unchanged
 - [ ] With an encoder connected, scope or meter each Pico input: about 3.0 V high and 0 V low, never 5 V
 - [ ] Run `i2cdetect -y 1` on the Pi and confirm both `0x29` (VL53L1X) and `0x42` (Pico)
 - [ ] Read `WHO_AM_I` and get `0xE5`
