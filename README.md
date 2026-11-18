@@ -70,6 +70,8 @@ The encoders use GP6–GP9 (physical pins 9–12), with ground on pin 13 right b
 
 GP23, GP24, GP25 and GP29 are wired to the Pico W's wireless chip and are not on the header; the design does not touch them. GP0–GP3 and GP10–GP22 remain free.
 
+![Pico W Header Pins](https://www.raspberrypi.com/documentation/microcontrollers/images/pico-pinout.svg)
+
 ### Pi 4 header
 
 | Pi 4 pin | Signal | Goes to |
